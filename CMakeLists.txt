@@ -87,6 +87,14 @@ find_package(CHOLMOD REQUIRED)
 find_package(CSparse REQUIRED)
 find_package(G2O REQUIRED)
 find_package(LAPACK REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GLOG REQUIRED libglog)
+
+add_library(glog::glog INTERFACE IMPORTED)
+target_include_directories(glog::glog INTERFACE ${GLOG_INCLUDE_DIRS})
+target_link_directories(glog::glog INTERFACE ${GLOG_LIBRARY_DIRS})
+target_link_libraries(glog::glog INTERFACE ${GLOG_LIBRARIES})
+
 find_package(Ceres REQUIRED COMPONENTS SuiteSparse)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)

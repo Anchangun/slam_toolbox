@@ -109,38 +109,40 @@ inline void toNavMap(
   const karto::OccupancyGrid * occ_grid,
   nav_msgs::msg::OccupancyGrid & map)
 {
-  // Translate to ROS format
-  kt_int32s width = occ_grid->GetWidth();
-  kt_int32s height = occ_grid->GetHeight();
-  karto::Vector2<kt_double> offset =
+  const kt_int32s width  = occ_grid->GetWidth();
+  const kt_int32s height = occ_grid->GetHeight();
+  const karto::Vector2<kt_double> offset =
     occ_grid->GetCoordinateConverter()->GetOffset();
 
-  if (map.info.width != (unsigned int) width ||
-    map.info.height != (unsigned int) height ||
-    map.info.origin.position.x != offset.GetX() ||
-    map.info.origin.position.y != offset.GetY())
+  if (map.info.width != static_cast<unsigned int>(width) ||
+      map.info.height != static_cast<unsigned int>(height) ||
+      map.info.origin.position.x != offset.GetX() ||
+      map.info.origin.position.y != offset.GetY())
   {
     map.info.origin.position.x = offset.GetX();
     map.info.origin.position.y = offset.GetY();
-    map.info.width = width;
-    map.info.height = height;
-    map.data.resize(map.info.width * map.info.height);
+    map.info.width  = static_cast<unsigned int>(width);
+    map.info.height = static_cast<unsigned int>(height);
+    map.data.resize(static_cast<size_t>(map.info.width) * static_cast<size_t>(map.info.height));
   }
 
-  for (kt_int32s y = 0; y < height; y++) {
-    for (kt_int32s x = 0; x < width; x++) {
-      kt_int8u value = occ_grid->GetValue(karto::Vector2<kt_int32s>(x, y));
-      switch (value) {
-        case karto::GridStates_Unknown:
-          map.data[MAP_IDX(map.info.width, x, y)] = -1;
-          break;
-        case karto::GridStates_Occupied:
-          map.data[MAP_IDX(map.info.width, x, y)] = 100;
-          break;
-        case karto::GridStates_Free:
-          map.data[MAP_IDX(map.info.width, x, y)] = 0;
-          break;
-      }
+  static int8_t lut[256];
+  static bool lut_init = false;
+  if (!lut_init) {
+    std::fill(std::begin(lut), std::end(lut), static_cast<int8_t>(-1));
+    lut[static_cast<uint8_t>(karto::GridStates_Unknown)]  = -1;
+    lut[static_cast<uint8_t>(karto::GridStates_Occupied)] = 100;
+    lut[static_cast<uint8_t>(karto::GridStates_Free)]     = 0;
+    lut_init = true;
+  }
+
+  int8_t* out = map.data.data();
+  size_t idx = 0;
+
+  for (kt_int32s y = 0; y < height; ++y) {
+    for (kt_int32s x = 0; x < width; ++x) {
+      const kt_int8u value = occ_grid->GetValue(karto::Vector2<kt_int32s>(x, y));
+      out[idx++] = lut[static_cast<uint8_t>(value)];
     }
   }
 }

@@ -642,10 +642,9 @@ LaserRangeFinder * SlamToolbox::getLaser(
 
   return lasers_[frame].getLaser();
 }
-
-/*****************************************************************************/
+/*
 bool SlamToolbox::updateMap()
-/*****************************************************************************/
+
 {
   if (!sst_ || !sst_->is_activated() || sst_->get_subscription_count() == 0) {
     return true;
@@ -669,7 +668,69 @@ bool SlamToolbox::updateMap()
   occ_grid = nullptr;
   return true;
 }
+*/
+bool SlamToolbox::updateMap()
+{
+  using steady = std::chrono::steady_clock;
+  using sec = std::chrono::duration<double>;  // seconds with decimals
 
+  if (!sst_ || !sst_->is_activated() || sst_->get_subscription_count() == 0) {
+    return true;
+  }
+
+  const auto t_total0 = steady::now();
+
+  // 1) mutex wait/acquire time
+  const auto t_lock0 = steady::now();
+  boost::mutex::scoped_lock lock(smapper_mutex_);
+  const auto t_lock1 = steady::now();
+
+  // 2) getOccupancyGrid time
+  const auto t_grid0 = steady::now();
+  OccupancyGrid * occ_grid = smapper_->getOccupancyGrid(resolution_);
+  const auto t_grid1 = steady::now();
+
+  if (!occ_grid) {
+    return false;
+  }
+
+  // 3) toNavMap time
+  const auto t_conv0 = steady::now();
+  vis_utils::toNavMap(occ_grid, map_.map);
+  const auto t_conv1 = steady::now();
+
+  // 4) publish time (both)
+  const auto t_pub0 = steady::now();
+  map_.map.header.stamp = scan_header.stamp;
+
+  sst_->publish(std::make_unique<nav_msgs::msg::OccupancyGrid>(map_.map));
+  sstm_->publish(std::make_unique<nav_msgs::msg::MapMetaData>(map_.map.info));
+  const auto t_pub1 = steady::now();
+
+  delete occ_grid;
+
+  const auto t_total1 = steady::now();
+
+  const double lock_s  = std::chrono::duration_cast<sec>(t_lock1  - t_lock0).count();
+  const double grid_s  = std::chrono::duration_cast<sec>(t_grid1  - t_grid0).count();
+  const double conv_s  = std::chrono::duration_cast<sec>(t_conv1  - t_conv0).count();
+  const double pub_s   = std::chrono::duration_cast<sec>(t_pub1   - t_pub0).count();
+  const double total_s = std::chrono::duration_cast<sec>(t_total1 - t_total0).count();
+
+  static auto last_print = steady::now();
+  const auto now = steady::now();
+
+  if ((now - last_print) >= std::chrono::seconds(2)) {
+    last_print = now;
+    RCLCPP_INFO(
+      this->get_logger(),
+      "updateMap(s): lock=%.3f grid=%.3f toNavMap=%.3f pub=%.3f total=%.3f",
+      lock_s, grid_s, conv_s, pub_s, total_s
+    );
+  }
+
+  return true;
+}
 /*****************************************************************************/
 tf2::Stamped<tf2::Transform> SlamToolbox::setTransformFromPoses(
   const Pose2 & corrected_pose,

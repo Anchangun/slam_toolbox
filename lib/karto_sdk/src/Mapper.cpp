@@ -1171,39 +1171,56 @@ PointVectorDouble ScanMatcher::FindValidPoints(
  */
 kt_double ScanMatcher::GetResponse(kt_int32u angleIndex, kt_int32s gridPositionIndex) const
 {
-  kt_double response = 0.0;
-
-  // add up value for each point
-  kt_int8u * pByte = m_pCorrelationGrid->GetDataPointer() + gridPositionIndex;
-
+  // Fast path
   const LookupArray * pOffsets = m_pGridLookup->GetLookupArray(angleIndex);
   assert(pOffsets != NULL);
 
-  // get number of points in offset list
-  kt_int32u nPoints = pOffsets->GetSize();
+  const kt_int32u nPoints = pOffsets->GetSize();
   if (nPoints == 0) {
-    return response;
+    return 0.0;
   }
 
-  // calculate response
-  kt_int32s * pAngleIndexPointer = pOffsets->GetArrayPointer();
-  for (kt_int32u i = 0; i < nPoints; i++) {
-    // ignore points that fall off the grid
-    kt_int32s pointGridIndex = gridPositionIndex + pAngleIndexPointer[i];
-    if (!math::IsUpTo(pointGridIndex,
-      m_pCorrelationGrid->GetDataSize()) || pAngleIndexPointer[i] == INVALID_SCAN)
-    {
+  // Cache hot data
+  kt_int8u * const base = m_pCorrelationGrid->GetDataPointer() + gridPositionIndex;
+
+  // NOTE: GetDataSize() type may be unsigned; convert once.
+  const kt_int32s dataSize = static_cast<kt_int32s>(m_pCorrelationGrid->GetDataSize());
+
+  // We need: 0 <= gridPositionIndex + off < dataSize
+  // <=> -gridPositionIndex <= off <= (dataSize - 1 - gridPositionIndex)
+  // (This replaces math::IsUpTo(pointGridIndex, dataSize))
+  const kt_int32s lower = -gridPositionIndex;
+  const kt_int32s upper = (dataSize - 1) - gridPositionIndex;
+
+  kt_int32s * const offsets = pOffsets->GetArrayPointer();
+
+  // Accumulate as integer (pByte values are bytes)
+  uint32_t sum = 0;
+
+  for (kt_int32u i = 0; i < nPoints; ++i) {
+    const kt_int32s off = offsets[i];
+
+    // keep exact semantics: INVALID_SCAN is always skipped
+    if (off == INVALID_SCAN) {
       continue;
     }
 
-    // uses index offsets to efficiently find location of point in the grid
-    response += pByte[pAngleIndexPointer[i]];
+    // bounds check equivalent to previous pointGridIndex + IsUpTo(...)
+    if (off < lower || off > upper) {
+      continue;
+    }
+
+    sum += static_cast<uint32_t>(base[off]);
   }
 
-  // normalize response
-  response /= (nPoints * GridStates_Occupied);
-  assert(fabs(response) <= 1.0);
+  // normalize response: response /= (nPoints * GridStates_Occupied);
+  // Same math, but faster: multiply by reciprocal once.
+  const double inv_norm =
+    1.0 / (static_cast<double>(nPoints) * static_cast<double>(GridStates_Occupied));
 
+  const kt_double response = static_cast<kt_double>(static_cast<double>(sum) * inv_norm);
+
+  assert(fabs(response) <= 1.0);
   return response;
 }
 
