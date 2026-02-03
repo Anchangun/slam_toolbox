@@ -1171,7 +1171,44 @@ PointVectorDouble ScanMatcher::FindValidPoints(
  */
 kt_double ScanMatcher::GetResponse(kt_int32u angleIndex, kt_int32s gridPositionIndex) const
 {
-  kt_double response = 0.0;
+  const LookupArray* pOffsets = m_pGridLookup->GetLookupArray(angleIndex);
+  kt_int32u nPoints = pOffsets->GetSize();
+  if (nPoints == 0) return 0.0;
+
+  const kt_int32s* pOffsetArray = pOffsets->GetArrayPointer();
+  const kt_int8u* pGridBase = m_pCorrelationGrid->GetDataPointer();
+  kt_int32u gridDataSize = m_pCorrelationGrid->GetDataSize();
+
+  using simd_i32 = std::experimental::native_simd<kt_int32s>;
+  simd_i32 total_sum_vec(0);
+
+  for (size_t i = 0; i < pOffsets->GetCapacity(); i += simd_i32::size()) {
+    simd_i32 offsets;
+    offsets.copy_from(&pOffsetArray[i], std::experimental::vector_aligned);
+
+    simd_i32 pointIndices = offsets + gridPositionIndex;
+
+    auto mask = (pointIndices >= 0) &&
+                (pointIndices < (kt_int32s)gridDataSize) &&
+                (offsets != INVALID_SCAN);
+
+    simd_i32 values(0); // 기본값 0
+    for (size_t j = 0; j < simd_i32::size(); ++j) {
+      if (mask[j]) {
+        values[j] = pGridBase[pointIndices[j]];
+      }
+    }
+
+    total_sum_vec += values;
+  }
+
+  kt_int32s final_int_sum = std::experimental::reduce(total_sum_vec);
+
+  kt_double response = (kt_double)final_int_sum / (nPoints * GridStates_Occupied);
+
+  return response;
+
+  /*kt_double response = 0.0;
 
   // add up value for each point
   kt_int8u * pByte = m_pCorrelationGrid->GetDataPointer() + gridPositionIndex;
@@ -1204,7 +1241,7 @@ kt_double ScanMatcher::GetResponse(kt_int32u angleIndex, kt_int32s gridPositionI
   response /= (nPoints * GridStates_Occupied);
   assert(fabs(response) <= 1.0);
 
-  return response;
+  return response;*/
 }
 
 

@@ -6657,6 +6657,11 @@ public:
     return m_Size;
   }
 
+  kt_int32u GetCapacity() const
+  {
+    return m_Capacity;
+  }
+
   /**
    * Sets size of array (resize if not big enough)
    * @param size
