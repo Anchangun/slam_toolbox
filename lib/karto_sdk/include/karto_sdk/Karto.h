@@ -51,6 +51,7 @@
 #include <stdexcept>
 #include <shared_mutex>
 #include <mutex>
+#include <experimental/simd>
 
 #ifdef USE_POCO
 #include <Poco/Mutex.h>
@@ -5956,8 +5957,8 @@ public:
     Vector2<kt_double> offset;
     ComputeDimensions(rScans, resolution, width, height, offset);
     OccupancyGrid * pOccupancyGrid = new OccupancyGrid(width, height, offset, resolution);
-    pOccupancyGrid->SetMinPassThrough(min_pass_through); 
-    pOccupancyGrid->SetOccupancyThreshold(occupancy_threshold); 
+    pOccupancyGrid->SetMinPassThrough(min_pass_through);
+    pOccupancyGrid->SetOccupancyThreshold(occupancy_threshold);
     pOccupancyGrid->CreateFromScans(rScans);
 
     return pOccupancyGrid;
@@ -6605,6 +6606,7 @@ BOOST_SERIALIZATION_ASSUME_ABSTRACT(Dataset)
 class LookupArray
 {
 public:
+  typedef std::experimental::native_simd<kt_int32s> simd_i32s;
   /**
    * Constructs lookup array
    */
@@ -6620,10 +6622,11 @@ public:
    */
   virtual ~LookupArray()
   {
-    assert(m_pArray != NULL);
+    FreeArray();
+    /*assert(m_pArray != NULL);
 
     delete[] m_pArray;
-    m_pArray = NULL;
+    m_pArray = NULL;*/
   }
 
 public:
@@ -6632,7 +6635,17 @@ public:
    */
   void Clear()
   {
-    memset(m_pArray, 0, sizeof(kt_int32s) * m_Capacity);
+    if (!m_pArray)
+    {
+      return;
+    }
+
+    simd_i32s zero_vec(0);
+    for (size_t i = 0; i < m_Capacity; i += SIMD_WIDTH)
+    {
+      zero_vec.copy_to(&m_pArray[i], std::experimental::vector_aligned);
+    }
+    // memset(m_pArray, 0, sizeof(kt_int32s) * m_Capacity);
   }
 
   /**
@@ -6650,7 +6663,23 @@ public:
    */
   void SetSize(kt_int32u size)
   {
-    assert(size != 0);
+    if (size == 0) {
+      m_Size = 0;
+      return;
+    }
+
+    kt_int32u padded_capacity = ((size + SIMD_WIDTH - 1) / SIMD_WIDTH) * SIMD_WIDTH;
+    if (padded_capacity > m_Capacity) {
+      FreeArray();
+      m_Capacity = padded_capacity;
+
+      size_t alloc_size = ((m_Capacity * sizeof(kt_int32s) + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
+      m_pArray = static_cast<kt_int32s *>(std::aligned_alloc(ALIGNMENT, alloc_size));
+    }
+
+    m_Size = size;
+
+    /*assert(size != 0);
 
     if (size > m_Capacity) {
       if (m_pArray != NULL) {
@@ -6660,7 +6689,7 @@ public:
       m_pArray = new kt_int32s[m_Capacity];
     }
 
-    m_Size = size;
+    m_Size = size;*/
   }
 
   /**
@@ -6716,10 +6745,21 @@ private:
     ar & BOOST_SERIALIZATION_NVP(m_Capacity);
     ar & BOOST_SERIALIZATION_NVP(m_Size);
     if (Archive::is_loading::value) {
-      m_pArray = new kt_int32s[m_Capacity];
+      size_t alloc_size = ((m_Capacity * sizeof(kt_int32s) + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
+      m_pArray = static_cast<kt_int32s *>(std::aligned_alloc(ALIGNMENT, alloc_size));
+      // m_pArray = new kt_int32s[m_Capacity];
     }
     ar & boost::serialization::make_array<kt_int32s>(m_pArray, m_Capacity);
   }
+
+  void FreeArray()
+  {
+    std::free(m_pArray);
+    m_pArray = nullptr;
+  }
+
+  static constexpr size_t SIMD_WIDTH = simd_i32s::size();
+  static constexpr size_t ALIGNMENT = std::experimental::memory_alignment_v<simd_i32s>;
 };    // LookupArray
 
 ////////////////////////////////////////////////////////////////////////////////////////
