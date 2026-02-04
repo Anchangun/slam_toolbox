@@ -29,6 +29,7 @@ SMapper::SMapper()
 /*****************************************************************************/
 {
   mapper_ = std::make_unique<karto::Mapper>();
+  occupancy_grid_ = std::make_shared<mapper_utils::OccupancyGrid>();
 }
 
 /*****************************************************************************/
@@ -63,44 +64,16 @@ void SMapper::clearLocalizationBuffer()
 karto::OccupancyGrid * SMapper::getOccupancyGrid(const double & resolution)
 /*****************************************************************************/
 {
-  LocalizedRangeScanVector scans = mapper_->GetAllProcessedScans();
-
-  int changed_count = 0;
-  int new_count = 0;
-
-  for (auto* scan : scans) {
-    kt_int32s id = scan->GetUniqueId();
-    karto::Pose2 current_pose = scan->GetBarycenterPose();
-
-    auto it = prev_poses_.find(id);
-    if (it != prev_poses_.end()) {
-      karto::Pose2& old_pose = it->second;
-
-      if (std::abs(current_pose.GetX() - old_pose.GetX()) > 0.01 ||
-          std::abs(current_pose.GetY() - old_pose.GetY()) > 0.01 ||
-          std::abs(current_pose.GetHeading() - old_pose.GetHeading()) > 0.01) {
-        changed_count++;
-          }
-    } else {
-      new_count++;
-    }
+  if (!occupancy_grid_->isValid()) {
+    std::cout << "Occupancy grid is not valid." << std::endl;
+    occupancy_grid_->init(
+      mapper_->GetAllProcessedScans(), resolution,
+      mapper_->getParamMinPassThrough(), mapper_->getParamOccupancyThreshold());
+  } else {
+    occupancy_grid_->updateAllScans(mapper_->GetAllProcessedScans());
   }
 
-  std::cout << "[Scan Stats] Total: " << scans.size()
-            << " | Changed: " << changed_count
-            << " | New: " << new_count << std::endl;
-
-  OccupancyGrid * occ_grid = OccupancyGrid::CreateFromScans(
-    scans, resolution,
-    static_cast<kt_int32u>(mapper_->getParamMinPassThrough()),
-    mapper_->getParamOccupancyThreshold()
-  );
-
-  for (auto* scan : scans) {
-    prev_poses_[scan->GetUniqueId()] = scan->GetBarycenterPose();
-  }
-
-  return occ_grid;
+  return occupancy_grid_.get();
 }
 
 /*****************************************************************************/

@@ -26,6 +26,7 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "tf2/utils.h"
 #include "slam_toolbox/toolbox_types.hpp"
+#include "slam_toolbox/slam_occupancy_grid.hpp"
 
 namespace mapper_utils
 {
@@ -65,8 +66,7 @@ public:
 
 protected:
   std::unique_ptr<karto::Mapper> mapper_;
-  std::map<kt_int32s, karto::Pose2> prev_poses_;
-  // std::shared_ptr<LocalizedRangeScanVector> prev_scans_;
+  std::shared_ptr<mapper_utils::OccupancyGrid> occupancy_grid_;
 };
 
 }  // namespace mapper_utils

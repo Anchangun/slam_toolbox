@@ -148,7 +148,9 @@ target_link_libraries(ceres_solver_plugin "${cpp_typesupport_target}")
 pluginlib_export_plugin_description_file(slam_toolbox solver_plugins.xml)
 
 #### Tool lib for mapping
-add_library(toolbox_common src/slam_toolbox_common.cpp src/map_saver.cpp src/loop_closure_assistant.cpp src/laser_utils.cpp src/slam_mapper.cpp)
+add_library(toolbox_common src/slam_toolbox_common.cpp src/map_saver.cpp src/loop_closure_assistant.cpp
+  src/laser_utils.cpp src/slam_mapper.cpp src/slam_occupancy_grid.cpp
+)
 ament_target_dependencies(toolbox_common
   ${dependencies}
 )
@@ -157,7 +159,8 @@ rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typ
 target_link_libraries(toolbox_common "${cpp_typesupport_target}")
 
 #### Mapping executibles
-add_library(async_slam_toolbox src/slam_toolbox_async.cpp)
+add_library(async_slam_toolbox src/slam_toolbox_async.cpp
+        src/slam_occupancy_grid.cpp)
 target_link_libraries(async_slam_toolbox toolbox_common kartoSlamToolbox ${Boost_LIBRARIES})
 add_executable(async_slam_toolbox_node src/slam_toolbox_async_node.cpp)
 target_link_libraries(async_slam_toolbox_node async_slam_toolbox)

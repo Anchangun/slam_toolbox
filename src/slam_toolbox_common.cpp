@@ -653,6 +653,7 @@ bool SlamToolbox::updateMap()
   boost::mutex::scoped_lock lock(smapper_mutex_);
   OccupancyGrid * occ_grid = smapper_->getOccupancyGrid(resolution_);
   if (!occ_grid) {
+    RCLCPP_ERROR(get_logger(), "OccupancyGrid is nullptr");
     return false;
   }
 
@@ -665,8 +666,8 @@ bool SlamToolbox::updateMap()
   sstm_->publish(
     std::move(std::make_unique<nav_msgs::msg::MapMetaData>(map_.map.info)));
 
-  delete occ_grid;
-  occ_grid = nullptr;
+  /*delete occ_grid;
+  occ_grid = nullptr;*/
   return true;
 }
 
