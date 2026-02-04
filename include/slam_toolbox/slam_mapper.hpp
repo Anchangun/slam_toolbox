@@ -65,6 +65,8 @@ public:
 
 protected:
   std::unique_ptr<karto::Mapper> mapper_;
+  std::map<kt_int32s, karto::Pose2> prev_poses_;
+  // std::shared_ptr<LocalizedRangeScanVector> prev_scans_;
 };
 
 }  // namespace mapper_utils

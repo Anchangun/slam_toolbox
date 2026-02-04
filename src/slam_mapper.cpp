@@ -63,10 +63,44 @@ void SMapper::clearLocalizationBuffer()
 karto::OccupancyGrid * SMapper::getOccupancyGrid(const double & resolution)
 /*****************************************************************************/
 {
-  karto::OccupancyGrid * occ_grid = nullptr;
-  return karto::OccupancyGrid::CreateFromScans(
-    mapper_->GetAllProcessedScans(),
-    resolution, (kt_int32u)mapper_->getParamMinPassThrough(), (kt_double)mapper_->getParamOccupancyThreshold());
+  LocalizedRangeScanVector scans = mapper_->GetAllProcessedScans();
+
+  int changed_count = 0;
+  int new_count = 0;
+
+  for (auto* scan : scans) {
+    kt_int32s id = scan->GetUniqueId();
+    karto::Pose2 current_pose = scan->GetBarycenterPose();
+
+    auto it = prev_poses_.find(id);
+    if (it != prev_poses_.end()) {
+      karto::Pose2& old_pose = it->second;
+
+      if (std::abs(current_pose.GetX() - old_pose.GetX()) > 0.01 ||
+          std::abs(current_pose.GetY() - old_pose.GetY()) > 0.01 ||
+          std::abs(current_pose.GetHeading() - old_pose.GetHeading()) > 0.01) {
+        changed_count++;
+          }
+    } else {
+      new_count++;
+    }
+  }
+
+  std::cout << "[Scan Stats] Total: " << scans.size()
+            << " | Changed: " << changed_count
+            << " | New: " << new_count << std::endl;
+
+  OccupancyGrid * occ_grid = OccupancyGrid::CreateFromScans(
+    scans, resolution,
+    static_cast<kt_int32u>(mapper_->getParamMinPassThrough()),
+    mapper_->getParamOccupancyThreshold()
+  );
+
+  for (auto* scan : scans) {
+    prev_poses_[scan->GetUniqueId()] = scan->GetBarycenterPose();
+  }
+
+  return occ_grid;
 }
 
 /*****************************************************************************/
