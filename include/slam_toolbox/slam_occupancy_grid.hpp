@@ -38,8 +38,10 @@ namespace mapper_utils
     void updateAllScans(const karto::LocalizedRangeScanVector &rScans);
 
   protected:
+    void CreateFromScans(const karto::LocalizedRangeScanVector &rScans) override;
+
+    bool isSamePose(karto::Pose2 p1, karto::Pose2 p2);
     void realloc(const karto::LocalizedRangeScanVector &rScans, kt_double resolution);
-    // void CreateFromScans(const karto::LocalizedRangeScanVector &rScans) override;
 
   private:
     std::map<kt_int32s, karto::Pose2> prev_scan_poses_;
