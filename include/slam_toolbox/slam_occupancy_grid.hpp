@@ -19,6 +19,8 @@
 #ifndef SLAM_TOOLBOX__SLAM_OCCUPANCY_GRID_HPP_
 #define SLAM_TOOLBOX__SLAM_OCCUPANCY_GRID_HPP_
 
+#include <rclcpp/macros.hpp>
+
 #include "karto_sdk/Karto.h"
 
 namespace mapper_utils
@@ -26,6 +28,8 @@ namespace mapper_utils
   class OccupancyGrid : public karto::OccupancyGrid
   {
   public:
+    RCLCPP_SMART_PTR_DEFINITIONS(mapper_utils::OccupancyGrid)
+
     OccupancyGrid(kt_int32s width = 0, kt_int32s height = 0,
                   const karto::Vector2<kt_double> &rOffset = {0, 0},
                   kt_double resolution = 0.05);

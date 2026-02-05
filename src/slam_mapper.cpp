@@ -61,8 +61,8 @@ void SMapper::clearLocalizationBuffer()
 }
 
 /*****************************************************************************/
-karto::OccupancyGrid * SMapper::getOccupancyGrid(const double & resolution)
-/*****************************************************************************/
+/*karto::OccupancyGrid * SMapper::getOccupancyGrid(const double & resolution)
+/****************************************************************************#1#
 {
   if (!occupancy_grid_->isValid()) {
     std::cout << "Occupancy grid is not valid." << std::endl;
@@ -74,6 +74,19 @@ karto::OccupancyGrid * SMapper::getOccupancyGrid(const double & resolution)
   }
 
   return occupancy_grid_.get();
+}*/
+
+mapper_utils::OccupancyGrid::SharedPtr SMapper::getOccupancyGrid(const double &resolution) {
+  if (!occupancy_grid_->isValid()) {
+    std::cout << "Occupancy grid is not valid." << std::endl;
+    occupancy_grid_->init(
+      mapper_->GetAllProcessedScans(), resolution,
+      mapper_->getParamMinPassThrough(), mapper_->getParamOccupancyThreshold());
+  } else {
+    occupancy_grid_->updateAllScans(mapper_->GetAllProcessedScans());
+  }
+
+  return occupancy_grid_;
 }
 
 /*****************************************************************************/
