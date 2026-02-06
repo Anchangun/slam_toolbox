@@ -25,30 +25,41 @@
 
 namespace mapper_utils
 {
+  struct Cell
+  {
+    kt_int32s x, y;
+  };
+
   class OccupancyGrid : public karto::OccupancyGrid
   {
   public:
     RCLCPP_SMART_PTR_DEFINITIONS(mapper_utils::OccupancyGrid)
 
     OccupancyGrid(kt_int32s width = 0, kt_int32s height = 0,
-                  const karto::Vector2<kt_double> &rOffset = {0, 0},
+                  const karto::Vector2<kt_double>& rOffset = {0, 0},
                   kt_double resolution = 0.05);
 
-    void init(const karto::LocalizedRangeScanVector &rScans, kt_double resolution,
+    void init(const karto::LocalizedRangeScanVector& rScans, kt_double resolution,
               kt_int32u min_pass_through, kt_double occupancy_threshold);
 
     bool isValid();
 
-    void updateAllScans(const karto::LocalizedRangeScanVector &rScans);
+    void updateAllScans(const karto::LocalizedRangeScanVector& rScans);
 
   protected:
-    void CreateFromScans(const karto::LocalizedRangeScanVector &rScans) override;
+    void CreateFromScans(const karto::LocalizedRangeScanVector& rScans) override;
+    kt_bool AddScan(karto::LocalizedRangeScan* pScan, kt_bool doUpdate = false) override;
+    Cell RayTracing(const karto::Vector2<double>& rWorldFrom,
+                    const karto::Vector2<double>& rWorldTo,
+                    kt_bool isEndPointValid, kt_bool doUpdate);
 
     bool isSamePose(karto::Pose2 p1, karto::Pose2 p2);
-    void realloc(const karto::LocalizedRangeScanVector &rScans, kt_double resolution);
+    void realloc(const karto::LocalizedRangeScanVector& rScans, kt_double resolution);
 
   private:
-    std::map<kt_int32s, karto::Pose2> prev_scan_poses_;
+    std::map<kt_int32s, karto::Pose2> scan_poses_;
+    std::map<kt_int32s, std::vector<Cell>> free_cells;
+    std::map<kt_int32s, std::vector<Cell>> occupied_cell;
   };
 } // namespace mapper_utils
 
