@@ -39,7 +39,8 @@ public:
   SMapper();
   ~SMapper();
 
-  mapper_utils::OccupancyGrid::SharedPtr getOccupancyGrid(const double & resolution);
+  // get occupancy grid from scans
+  karto::OccupancyGrid * getOccupancyGrid(const double & resolution);
 
   // convert Karto pose to TF pose
   tf2::Transform toTfPose(const karto::Pose2 & pose) const;
@@ -65,7 +66,7 @@ public:
 
 protected:
   std::unique_ptr<karto::Mapper> mapper_;
-  mapper_utils::OccupancyGrid::SharedPtr occupancy_grid_;
+  std::shared_ptr<mapper_utils::OccupancyGrid> occupancy_grid_;
 };
 
 }  // namespace mapper_utils

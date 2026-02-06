@@ -61,7 +61,11 @@ void SMapper::clearLocalizationBuffer()
 }
 
 /*****************************************************************************/
+<<<<<<< HEAD
 mapper_utils::OccupancyGrid::SharedPtr SMapper::getOccupancyGrid(const double &resolution)
+=======
+karto::OccupancyGrid * SMapper::getOccupancyGrid(const double & resolution)
+>>>>>>> parent of c9e3056 (chore: remove test logs)
 /*****************************************************************************/
 {
   if (!occupancy_grid_->isValid()) {
@@ -70,9 +74,13 @@ mapper_utils::OccupancyGrid::SharedPtr SMapper::getOccupancyGrid(const double &r
       mapper_->getParamMinPassThrough(), mapper_->getParamOccupancyThreshold());
   }
 
+<<<<<<< HEAD
   occupancy_grid_->updateAllScans(mapper_->GetAllProcessedScans());
 
   return occupancy_grid_;
+=======
+  return occupancy_grid_.get();
+>>>>>>> parent of c9e3056 (chore: remove test logs)
 }
 
 /*****************************************************************************/

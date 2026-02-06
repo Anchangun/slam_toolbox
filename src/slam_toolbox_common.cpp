@@ -651,13 +651,13 @@ bool SlamToolbox::updateMap()
     return true;
   }
   boost::mutex::scoped_lock lock(smapper_mutex_);
-  mapper_utils::OccupancyGrid::SharedPtr occ_grid = smapper_->getOccupancyGrid(resolution_);
-  // OccupancyGrid * occ_grid = smapper_->getOccupancyGrid(resolution_);
+  OccupancyGrid * occ_grid = smapper_->getOccupancyGrid(resolution_);
   if (!occ_grid) {
+    RCLCPP_ERROR(get_logger(), "OccupancyGrid is nullptr");
     return false;
   }
 
-  vis_utils::toNavMap(occ_grid.get(), map_.map);
+  vis_utils::toNavMap(occ_grid, map_.map);
 
   // publish map as current
   map_.map.header.stamp = scan_header.stamp;
@@ -666,6 +666,8 @@ bool SlamToolbox::updateMap()
   sstm_->publish(
     std::move(std::make_unique<nav_msgs::msg::MapMetaData>(map_.map.info)));
 
+  /*delete occ_grid;
+  occ_grid = nullptr;*/
   return true;
 }
 

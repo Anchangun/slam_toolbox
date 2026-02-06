@@ -41,6 +41,7 @@ namespace mapper_utils
     bool is_map_geometry_changed = prev_width != width || prev_height != height;
     bool is_loop_closed = false;
 
+    int changed_pose_count = 0;
     karto::LocalizedRangeScanVector process_scans;
 
     for (karto::LocalizedRangeScan *scan: rScans) {
@@ -51,6 +52,8 @@ namespace mapper_utils
       if (it != prev_scan_poses_.end()) {
         if (!isSamePose(current_pose, it->second)) {
           is_loop_closed = true;
+          changed_pose_count++;
+
           it->second = current_pose;
         }
       } else {
@@ -62,9 +65,12 @@ namespace mapper_utils
     if (is_map_geometry_changed) {
       realloc(rScans, GetResolution());
       process_scans = rScans;
+      std::cout << width << " x " << height << std::endl;
     } else if (is_loop_closed) {
       Clear();
       process_scans = rScans;
+      std::cout << "[Loop Closed] Pose changed: " << changed_pose_count
+                    << " / " << rScans.size() << std::endl;
     }
 
     CreateFromScans(process_scans);
@@ -74,12 +80,13 @@ namespace mapper_utils
     m_pCellPassCnt->GetCoordinateConverter()->SetOffset(GetCoordinateConverter()->GetOffset());
     m_pCellHitsCnt->GetCoordinateConverter()->SetOffset(GetCoordinateConverter()->GetOffset());
 
-    const_forEach(karto::LocalizedRangeScanVector, &rScans) {
+    const_forEach(karto::LocalizedRangeScanVector, &rScans)
+    {
       if (*iter == nullptr) {
         continue;
       }
 
-      karto::LocalizedRangeScan *pScan = *iter;
+      karto::LocalizedRangeScan * pScan = *iter;
       AddScan(pScan);
     }
 
@@ -87,8 +94,12 @@ namespace mapper_utils
   }
 
   bool OccupancyGrid::isSamePose(karto::Pose2 p1, karto::Pose2 p2) {
-    return p1.GetX() == p2.GetX() && p1.GetY() == p2.GetY() &&
-           p1.GetHeading() == p2.GetHeading();
+    const double pos_eps = 0.001;
+    const double ang_eps = 0.01;
+
+    return (std::abs(p1.GetX() - p2.GetX()) < pos_eps &&
+            std::abs(p1.GetY() - p2.GetY()) < pos_eps &&
+            std::abs(karto::math::NormalizeAngle(p1.GetHeading() - p2.GetHeading())) < ang_eps);
   }
 
   void OccupancyGrid::realloc(const karto::LocalizedRangeScanVector &rScans, kt_double resolution) {
