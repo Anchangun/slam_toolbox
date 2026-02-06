@@ -57,6 +57,7 @@
   <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
   <exec_depend>boost</exec_depend>
+  <exec_depend>xsimd</exec_depend>
   <exec_depend>interactive_markers</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>suitesparse</exec_depend>

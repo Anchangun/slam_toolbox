@@ -3,6 +3,7 @@
 //
 
 #include "slam_toolbox/slam_occupancy_grid.hpp"
+#include "xsimd/xsimd.hpp"
 
 namespace mapper_utils
 {

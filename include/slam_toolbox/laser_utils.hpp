@@ -28,18 +28,50 @@
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 #include "slam_toolbox/toolbox_types.hpp"
 #include "tf2/utils.h"
+#include "karto_sdk/Karto.h"
 
 namespace laser_utils
 {
 
+using batch_float = xsimd::batch<float>;
+using batch_double = xsimd::batch<double>;
+
 // Convert a laser scan to a vector of readings
-inline std::vector<double> scanToReadings(
+inline karto::RangeReadingsVector scanToReadings(
   const sensor_msgs::msg::LaserScan & scan,
   const bool & inverted)
 {
-  std::vector<double> readings;
+  const size_t n = scan.ranges.size();
+  karto::RangeReadingsVector readings(n);
 
   if (inverted) {
+    for (size_t i = 0; i < n; ++i) {
+      readings[i] = static_cast<double>(scan.ranges[n - 1 - i]);
+    }
+  } else {
+    constexpr size_t simd_size = batch_float::size;
+    size_t i = 0;
+    size_t vec_end = n - (n % simd_size);
+
+    for (; i < vec_end; i += simd_size) {
+      batch_float f_batch = batch_float::load_unaligned(&scan.ranges[i]);
+
+      alignas(xsimd::default_arch::alignment()) float temp[simd_size];
+      f_batch.store_aligned(temp);
+
+      for (size_t j = 0; j < simd_size; ++j) {
+        readings[i + j] = static_cast<double>(temp[j]);
+      }
+    }
+
+    for (; i < n; ++i) {
+      readings[i] = static_cast<double>(scan.ranges[i]);
+    }
+  }
+
+  return readings;
+
+  /*if (inverted) {
     for (std::vector<float>::const_reverse_iterator it = scan.ranges.rbegin();
       it != scan.ranges.rend(); ++it)
     {
@@ -51,7 +83,7 @@ inline std::vector<double> scanToReadings(
     {
       readings.push_back(*it);
     }
-  }
+  }*/
 
   return readings;
 }

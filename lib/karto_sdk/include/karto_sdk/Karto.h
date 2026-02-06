@@ -51,6 +51,7 @@
 #include <stdexcept>
 #include <shared_mutex>
 #include <mutex>
+#include "xsimd/xsimd.hpp"
 
 #ifdef USE_POCO
 #include <Poco/Mutex.h>
@@ -5190,7 +5191,7 @@ private:
 /**
  * Type declaration of range readings vector
  */
-typedef std::vector<kt_double> RangeReadingsVector;
+typedef std::vector<kt_double, xsimd::aligned_allocator<kt_double, xsimd::default_arch::alignment()>> RangeReadingsVector;
 
 /**
  * LaserRangeScan representing the range readings from a laser range finder sensor.
@@ -5654,35 +5655,81 @@ private:
       kt_double angularResolution = pLaserRangeFinder->GetAngularResolution();
       Pose2 scanPose = GetSensorPose();
 
-      // compute point readings
-      Vector2<kt_double> rangePointsSum;
-      kt_int32u beamNum = 0;
-      for (kt_int32u i = 0; i < pLaserRangeFinder->GetNumberOfRangeReadings(); i++, beamNum++) {
-        kt_double rangeReading = GetRangeReadings()[i];
-        if (!math::InRange(rangeReading, pLaserRangeFinder->GetMinimumRange(), rangeThreshold)) {
-          kt_double angle = scanPose.GetHeading() + minimumAngle + beamNum * angularResolution;
+      kt_int32u numReadings = pLaserRangeFinder->GetNumberOfRangeReadings();
+      const kt_double* rangeReadings = GetRangeReadings();
 
-          Vector2<kt_double> point;
-          point.SetX(scanPose.GetX() + (rangeReading * cos(angle)));
-          point.SetY(scanPose.GetY() + (rangeReading * sin(angle)));
+      kt_double scanX = scanPose.GetX();
+      kt_double scanY = scanPose.GetY();
+      kt_double scanHeading = scanPose.GetHeading();
+      kt_double minRange = pLaserRangeFinder->GetMinimumRange();
 
-          m_UnfilteredPointReadings.push_back(point);
-          continue;
+      using batch = xsimd::batch<kt_double>;
+      constexpr std::size_t simd_size = batch::size;
+
+      m_PointReadings.reserve(numReadings);
+      m_UnfilteredPointReadings.reserve(numReadings);
+
+      Vector2<kt_double> rangePointsSum(0.0, 0.0);
+
+      std::size_t i = 0;
+      std::size_t vec_end = numReadings - (numReadings % simd_size);
+
+      for (; i < vec_end; i += simd_size) {
+        alignas(batch) kt_double indices[simd_size];
+        for (std::size_t j = 0; j < simd_size; ++j) {
+          indices[j] = static_cast<kt_double>(i + j);
         }
+        batch beamNum = batch::load_aligned(indices);
 
-        kt_double angle = scanPose.GetHeading() + minimumAngle + beamNum * angularResolution;
+        batch angle = scanHeading + minimumAngle + beamNum * angularResolution;
 
-        Vector2<kt_double> point;
-        point.SetX(scanPose.GetX() + (rangeReading * cos(angle)));
-        point.SetY(scanPose.GetY() + (rangeReading * sin(angle)));
+        batch rangeReading = batch::load_unaligned(&rangeReadings[i]);
 
-        m_PointReadings.push_back(point);
-        m_UnfilteredPointReadings.push_back(point);
+        batch cosAngle = xsimd::cos(angle);
+        batch sinAngle = xsimd::sin(angle);
 
-        rangePointsSum += point;
+        batch pointX = scanX + rangeReading * cosAngle;
+        batch pointY = scanY + rangeReading * sinAngle;
+
+        batch minRangeBatch(minRange);
+        batch rangeThresholdBatch(rangeThreshold);
+        auto validMask = (rangeReading >= minRangeBatch) && (rangeReading <= rangeThresholdBatch);
+
+        alignas(batch) kt_double xs[simd_size];
+        alignas(batch) kt_double ys[simd_size];
+        alignas(batch) bool masks[simd_size];
+
+        pointX.store_aligned(xs);
+        pointY.store_aligned(ys);
+        validMask.store_aligned(masks);
+
+        for (std::size_t j = 0; j < simd_size; ++j) {
+          Vector2<kt_double> point(xs[j], ys[j]);
+          m_UnfilteredPointReadings.push_back(point);
+
+          if (masks[j]) {
+            m_PointReadings.push_back(point);
+            rangePointsSum += point;
+          }
+        }
       }
 
-      // compute barycenter
+      for (; i < numReadings; ++i) {
+        kt_double rangeReading = rangeReadings[i];
+        kt_double angle = scanHeading + minimumAngle + i * angularResolution;
+
+        Vector2<kt_double> point;
+        point.SetX(scanX + rangeReading * std::cos(angle));
+        point.SetY(scanY + rangeReading * std::sin(angle));
+
+        m_UnfilteredPointReadings.push_back(point);
+
+        if (math::InRange(rangeReading, minRange, rangeThreshold)) {
+          m_PointReadings.push_back(point);
+          rangePointsSum += point;
+        }
+      }
+
       kt_double nPoints = static_cast<kt_double>(m_PointReadings.size());
       if (nPoints != 0.0) {
         Vector2<kt_double> averagePosition = Vector2<kt_double>(rangePointsSum / nPoints);
@@ -5691,11 +5738,9 @@ private:
         m_BarycenterPose = scanPose;
       }
 
-      // calculate bounding box of scan
       m_BoundingBox = BoundingBox2();
       m_BoundingBox.Add(scanPose.GetPosition());
-      forEach(PointVectorDouble, &m_PointReadings)
-      {
+      forEach(PointVectorDouble, &m_PointReadings) {
         m_BoundingBox.Add(*iter);
       }
     }
@@ -5956,8 +6001,8 @@ public:
     Vector2<kt_double> offset;
     ComputeDimensions(rScans, resolution, width, height, offset);
     OccupancyGrid * pOccupancyGrid = new OccupancyGrid(width, height, offset, resolution);
-    pOccupancyGrid->SetMinPassThrough(min_pass_through); 
-    pOccupancyGrid->SetOccupancyThreshold(occupancy_threshold); 
+    pOccupancyGrid->SetMinPassThrough(min_pass_through);
+    pOccupancyGrid->SetOccupancyThreshold(occupancy_threshold);
     pOccupancyGrid->CreateFromScans(rScans);
 
     return pOccupancyGrid;

@@ -735,7 +735,7 @@ LocalizedRangeScan * SlamToolbox::getLocalizedRangeScan(
 /*****************************************************************************/
 {
   // Create a vector of doubles for lib
-  std::vector<kt_double> readings = laser_utils::scanToReadings(
+  RangeReadingsVector readings = laser_utils::scanToReadings(
     *scan, lasers_[scan->header.frame_id].isInverted());
 
   // transform by the reprocessing transform
