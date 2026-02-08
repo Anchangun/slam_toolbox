@@ -163,7 +163,7 @@ void SMapper::configure(const NodeT & node)
     node->declare_parameter("scan_buffer_maximum_scan_distance", scan_buffer_maximum_scan_distance);
   }
   node->get_parameter("scan_buffer_maximum_scan_distance", scan_buffer_maximum_scan_distance);
-  if (math::Square(scan_buffer_maximum_scan_distance) <= 1e-06) {
+  if (karto::math::Square(scan_buffer_maximum_scan_distance) <= 1e-06) {
     RCLCPP_WARN(node->get_logger(),
       "You've set scan_buffer_maximum_scan_distance to be a value whose square is smaller than 1e-06,"
       "this isn't allowed so it will be set to default value 10.");

@@ -30,8 +30,8 @@
 
 namespace mapper_utils
 {
-
-using namespace ::karto;  // NOLINT
+// class OccupancyGrid;
+// using namespace ::karto;  // NOLINT
 
 class SMapper
 {

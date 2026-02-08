@@ -23,31 +23,24 @@
 #include <unordered_set>
 
 #include "karto_sdk/Karto.h"
-#include "slam_mapper.hpp"
 
-namespace mapper_utils {
-
-struct Cell {
-  kt_int32s x, y;
-  kt_int32u count;
-
-  bool operator==(const Cell& other) const {
-    return x == other.x && y == other.y;
-  }
-};
-
-struct CellHash {
-  std::size_t operator()(const Cell& c) const noexcept {
-    size_t h1 = std::hash<kt_int32s>{}(c.x);
-    size_t h2 = std::hash<kt_int32s>{}(c.y);
+namespace std {
+template <>
+struct hash<karto::Vector2<kt_double>> {
+  std::size_t operator()(const karto::Vector2<kt_double>& v) const noexcept {
+    size_t h1 = std::hash<double>{}(std::round(v.GetX() * 100.0) * 0.01);
+    size_t h2 = std::hash<double>{}(std::round(v.GetY() * 100.0) * 0.01);
     return h1 ^ (h2 << 1);
   }
 };
+}  // namespace std
+
+namespace mapper_utils {
 
 struct RayTracedScan {
   karto::Pose2 scan_pose;
-  std::unordered_set<Cell, CellHash> hit_cells;
-  std::unordered_set<Cell, CellHash> pass_cells;
+  std::unordered_map<karto::Vector2<kt_double>, kt_int32u> hit_cells;
+  std::unordered_map<karto::Vector2<kt_double>, kt_int32u> pass_cells;
 
   RayTracedScan() = default;
 };
@@ -68,16 +61,15 @@ class OccupancyGrid : public karto::OccupancyGrid {
   void updateAllScans(const karto::LocalizedRangeScanVector& rScans);
 
  protected:
-  void CreateFromScans(const karto::LocalizedRangeScanVector& rScans) override;
-  kt_bool AddScan(karto::LocalizedRangeScan* pScan,
-                  kt_bool doUpdate = false) override;
+  void draw();
 
-  kt_bool rayTrace(const karto::Vector2<double>& rWorldFrom,
+  void addScan(karto::LocalizedRangeScan* pScan);
+  void updateScanPose(kt_int32s scan_id, const karto::Pose2& new_pose);
+
+  void rayTrace(const karto::Vector2<double>& rWorldFrom,
                 const karto::Vector2<double>& rWorldTo, kt_bool isEndPointValid,
-                kt_bool doUpdate, RayTracedScan* traced_scan);
+                RayTracedScan* traced_scan);
 
-  void applyCachedScan(const RayTracedScan* cached_scan);
-  void applyAllCachedScans();
   void clearCache();
 
   bool isSamePose(karto::Pose2 p1, karto::Pose2 p2);
