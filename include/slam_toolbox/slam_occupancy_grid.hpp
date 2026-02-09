@@ -20,28 +20,64 @@
 #define SLAM_TOOLBOX__SLAM_OCCUPANCY_GRID_HPP_
 
 #include <rclcpp/macros.hpp>
-#include <unordered_set>
+#include <unordered_map>
 
 #include "karto_sdk/Karto.h"
 
-namespace std {
-template <>
-struct hash<karto::Vector2<kt_double>> {
-  std::size_t operator()(const karto::Vector2<kt_double>& v) const noexcept {
-    size_t h1 = std::hash<double>{}(std::round(v.GetX() * 100.0) * 0.01);
-    size_t h2 = std::hash<double>{}(std::round(v.GetY() * 100.0) * 0.01);
-    return h1 ^ (h2 << 1);
+namespace mapper_utils {
+
+struct GridCell
+{
+  int32_t x, y;
+  kt_int32u count;
+
+  GridCell() = delete;
+  GridCell(kt_int32s x, kt_int32s y, kt_int32u count = 0)
+  {
+    this->x = x;
+    this->y = y;
+    this->count = count;
+  }
+
+  static GridCell fromWorld(kt_double wx, kt_double wy, kt_int32u count = 0)
+  {
+    kt_int32s x = static_cast<kt_int32s>(std::round(wx * 100));
+    kt_int32s y = static_cast<kt_int32s>(std::round(wy * 100));
+
+    GridCell cell(x, y, count);
+    return cell;
+  }
+
+  void setFromWorld(const karto::Vector2<kt_double> & world_pos)
+  {
+    x = static_cast<kt_int32s>(std::round(world_pos.GetX() * 100));
+    y = static_cast<kt_int32s>(std::round(world_pos.GetY() * 100));
+  }
+
+  karto::Vector2<kt_double> toWorld() const
+  {
+    return {x * 0.01, y * 0.01};
+  }
+
+  bool operator==(const GridCell& other) const
+  {
+    return x == other.x && y == other.y;
+  }
+
+  bool operator<(const GridCell& other) const {
+    if (x != other.x)
+    {
+      return x < other.x;
+    }
+    return y < other.y;
   }
 };
-}  // namespace std
-
-namespace mapper_utils {
 
 struct RayTracedScan {
   karto::Pose2 scan_pose;
-  std::unordered_map<karto::Vector2<kt_double>, kt_int32u> hit_cells;
-  std::unordered_map<karto::Vector2<kt_double>, kt_int32u> pass_cells;
-
+  std::vector<GridCell> hit_cells;
+  std::vector<GridCell> pass_cells;
+`
   RayTracedScan() = default;
 };
 
@@ -61,7 +97,9 @@ class OccupancyGrid : public karto::OccupancyGrid {
   void updateAllScans(const karto::LocalizedRangeScanVector& rScans);
 
  protected:
+  void drawScanToGrid(const RayTracedScan & scan);
   void draw();
+  void drawPartial(kt_int32s id);
 
   void addScan(karto::LocalizedRangeScan* pScan);
   void updateScanPose(kt_int32s scan_id, const karto::Pose2& new_pose);
@@ -70,7 +108,7 @@ class OccupancyGrid : public karto::OccupancyGrid {
                 const karto::Vector2<double>& rWorldTo, kt_bool isEndPointValid,
                 RayTracedScan* traced_scan);
 
-  void clearCache();
+  void finalizeVector(std::vector<GridCell> & vec);
 
   bool isSamePose(karto::Pose2 p1, karto::Pose2 p2);
   void realloc(const karto::LocalizedRangeScanVector& rScans,

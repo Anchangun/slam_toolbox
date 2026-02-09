@@ -4,6 +4,8 @@
 
 #include "slam_toolbox/slam_occupancy_grid.hpp"
 
+#include <oneapi/tbb/parallel_for.h>
+
 namespace mapper_utils {
 OccupancyGrid::OccupancyGrid(kt_int32s width, kt_int32s height,
                              const karto::Vector2<kt_double>& rOffset,
@@ -29,8 +31,20 @@ void OccupancyGrid::updateAllScans(
 
   kt_int32s width, height;
   karto::Vector2<kt_double> offset;
-  this->ComputeDimensions(rScans, this->GetResolution(), width, height, offset);
-  this->realloc(rScans, this->GetResolution());
+  ComputeDimensions(rScans, this->GetResolution(), width, height, offset);
+
+  bool should_full_draw = false;
+  if (this->GetWidth() < width || this->GetHeight() < height)
+  {
+    Resize(width, height);
+    should_full_draw = true;
+  }
+
+  this->GetCoordinateConverter()->SetOffset(offset);
+  m_pCellHitsCnt->GetCoordinateConverter()->SetOffset(offset);
+  m_pCellPassCnt->GetCoordinateConverter()->SetOffset(offset);
+
+  std::vector<kt_int32s> new_scans;
 
   for (karto::LocalizedRangeScan* scan : rScans) {
     kt_int32s id = scan->GetUniqueId();
@@ -40,47 +54,110 @@ void OccupancyGrid::updateAllScans(
     if (it != traced_scans_.end()) {
       if (!isSamePose(current_pose, it->second.scan_pose)) {
         this->updateScanPose(id, current_pose);
+        should_full_draw = true;
       }
     } else {  // new scan
       this->addScan(scan);
+      new_scans.push_back(id);
     }
   }
 
-  this->draw();
+  if (should_full_draw)
+  {
+    this->draw();
+  } else
+  {
+    for (kt_int32s id : new_scans)
+    {
+      this->drawPartial(id);
+    }
+  }
+
+  this->Update();
+}
+
+void OccupancyGrid::drawScanToGrid(const RayTracedScan& scan)
+{
+  auto* hit_data = m_pCellHitsCnt->GetDataPointer();
+  auto* pass_data = m_pCellPassCnt->GetDataPointer();
+
+  for (const GridCell & cell : scan.hit_cells)
+  {
+    karto::Vector2<kt_int32s> grid_pos = this->WorldToGrid(cell.toWorld());
+    if (this->IsValidGridIndex(grid_pos))
+    {
+      hit_data[this->GridIndex(grid_pos, false)] += cell.count;
+    }
+  }
+
+  for (const GridCell & cell : scan.pass_cells)
+  {
+    karto::Vector2<kt_int32s> grid_pos = this->WorldToGrid(cell.toWorld());
+    if (this->IsValidGridIndex(grid_pos))
+    {
+      pass_data[this->GridIndex(grid_pos, false)] += cell.count;
+    }
+  }
 }
 
 void OccupancyGrid::draw() {
-  if (!isValid()) {
-    return;
-  }
+  if (!isValid()) return;
 
   this->Clear();
   m_pCellHitsCnt->Clear();
   m_pCellPassCnt->Clear();
 
   for (const auto& [uid, scan] : traced_scans_) {
-    for (const auto& [world_coord, cnt] : scan.hit_cells) {
-      karto::Vector2<kt_int32s> grid_coord = this->WorldToGrid(world_coord);
+    this->drawScanToGrid(scan);
+  }
+}
 
-      if (grid_coord.GetX() >= 0 && grid_coord.GetX() < GetWidth() &&
-          grid_coord.GetY() >= 0 && grid_coord.GetY() < GetHeight()) {
-        kt_int32s index = this->GridIndex(grid_coord, false);
-        m_pCellHitsCnt->GetDataPointer()[index] += cnt;
-      }
-    }
+void OccupancyGrid::drawPartial(kt_int32s id)
+{
+  if (!isValid()) return;
 
-    for (const auto& [world_coord, cnt] : scan.pass_cells) {
-      karto::Vector2<kt_int32s> grid_coord = this->WorldToGrid(world_coord);
+  auto it = traced_scans_.find(id);
+  if (it != traced_scans_.end()) {
+    drawScanToGrid(it->second);
+  }
+}
 
-      if (grid_coord.GetX() >= 0 && grid_coord.GetX() < GetWidth() &&
-          grid_coord.GetY() >= 0 && grid_coord.GetY() < GetHeight()) {
-        kt_int32s index = this->GridIndex(grid_coord, false);
-        m_pCellPassCnt->GetDataPointer()[index] += cnt;
-      }
-    }
+void OccupancyGrid::updateScanPose(kt_int32s scan_id, const karto::Pose2& new_pose) {
+  auto iter = traced_scans_.find(scan_id);
+  if (iter == traced_scans_.end()) {
+    return;
   }
 
-  this->Update();
+  RayTracedScan& traced_scan = iter->second;
+  karto::Pose2 old_pose = traced_scan.scan_pose;
+
+  kt_double dtheta = new_pose.GetHeading() - old_pose.GetHeading();
+  kt_double cos_theta = std::cos(dtheta);
+  kt_double sin_theta = std::sin(dtheta);
+
+  auto transform_cells = [&](std::vector<GridCell>& cells)
+  {
+    for (GridCell & cell : cells)
+    {
+      karto::Vector2<kt_double> w_pos = cell.toWorld();
+
+      kt_double rel_x = w_pos.GetX() - old_pose.GetX();
+      kt_double rel_y = w_pos.GetY() - old_pose.GetY();
+
+      kt_double rotated_x = rel_x * cos_theta - rel_y * sin_theta;
+      kt_double rotated_y = rel_x * sin_theta + rel_y * cos_theta;
+
+      kt_double new_world_x = new_pose.GetX() + rotated_x;
+      kt_double new_world_y = new_pose.GetY() + rotated_y;
+
+      cell.setFromWorld({new_world_x, new_world_y});
+    }
+  };
+
+  transform_cells(traced_scan.hit_cells);
+  transform_cells(traced_scan.pass_cells);
+
+  traced_scan.scan_pose = new_pose;
 }
 
 void OccupancyGrid::addScan(karto::LocalizedRangeScan* pScan) {
@@ -122,53 +199,9 @@ void OccupancyGrid::addScan(karto::LocalizedRangeScan* pScan) {
 
     pointIndex++;
   }
-}
 
-void OccupancyGrid::updateScanPose(kt_int32s scan_id,
-                                   const karto::Pose2& new_pose) {
-  auto iter = traced_scans_.find(scan_id);
-  if (iter == traced_scans_.end()) {
-    return;
-  }
-
-  RayTracedScan& traced_scan = iter->second;
-  karto::Pose2 old_pose = traced_scan.scan_pose;
-
-  kt_double dtheta = new_pose.GetHeading() - old_pose.GetHeading();
-  kt_double cos_theta = std::cos(dtheta);
-  kt_double sin_theta = std::sin(dtheta);
-
-  std::unordered_map<karto::Vector2<kt_double>, kt_int32u> new_hit_cells;
-  for (const auto& [world_point, count] : traced_scan.hit_cells) {
-    kt_double rel_x = world_point.GetX() - old_pose.GetX();
-    kt_double rel_y = world_point.GetY() - old_pose.GetY();
-
-    kt_double rotated_x = rel_x * cos_theta - rel_y * sin_theta;
-    kt_double rotated_y = rel_x * sin_theta + rel_y * cos_theta;
-
-    kt_double new_world_x = new_pose.GetX() + rotated_x;
-    kt_double new_world_y = new_pose.GetY() + rotated_y;
-
-    new_hit_cells[{new_world_x, new_world_y}] = count;
-  }
-
-  std::unordered_map<karto::Vector2<kt_double>, kt_int32u> new_pass_cells;
-  for (const auto& [world_point, count] : traced_scan.pass_cells) {
-    kt_double rel_x = world_point.GetX() - old_pose.GetX();
-    kt_double rel_y = world_point.GetY() - old_pose.GetY();
-
-    kt_double rotated_x = rel_x * cos_theta - rel_y * sin_theta;
-    kt_double rotated_y = rel_x * sin_theta + rel_y * cos_theta;
-
-    kt_double new_world_x = new_pose.GetX() + rotated_x;
-    kt_double new_world_y = new_pose.GetY() + rotated_y;
-
-    new_pass_cells[{new_world_x, new_world_y}] = count;
-  }
-
-  traced_scan.hit_cells = std::move(new_hit_cells);
-  traced_scan.pass_cells = std::move(new_pass_cells);
-  traced_scan.scan_pose = new_pose;
+  this->finalizeVector(traced_scan.hit_cells);
+  this->finalizeVector(traced_scan.pass_cells);
 }
 
 void OccupancyGrid::rayTrace(const karto::Vector2<double>& rWorldFrom,
@@ -177,6 +210,9 @@ void OccupancyGrid::rayTrace(const karto::Vector2<double>& rWorldFrom,
                              RayTracedScan* traced_scan) {
   karto::Vector2<kt_int32s> gridFrom = WorldToGrid(rWorldFrom);
   karto::Vector2<kt_int32s> gridTo = WorldToGrid(rWorldTo);
+
+  kt_int32s real_end_x = gridTo.GetX();
+  kt_int32s real_end_y = gridTo.GetY();
 
   kt_int32s x0 = gridFrom.GetX();
   kt_int32s y0 = gridFrom.GetY();
@@ -205,33 +241,52 @@ void OccupancyGrid::rayTrace(const karto::Vector2<double>& rWorldFrom,
     ystep = -1;
   }
 
-  kt_int32s pointX;
-  kt_int32s pointY;
   for (kt_int32s x = x0; x <= x1; x++) {
-    if (steep) {
-      pointX = y;
-      pointY = x;
+    kt_int32s px = steep ? y : x;
+    kt_int32s py = steep ? x : y;
+
+    karto::Vector2<kt_double> world_pos = this->GridToWorld({px, py});
+    GridCell cell = GridCell::fromWorld(world_pos.GetX(), world_pos.GetY(), 1);
+
+    if (px == real_end_x && py == real_end_y && isEndPointValid) {
+      traced_scan->hit_cells.push_back(cell);
     } else {
-      pointX = x;
-      pointY = y;
+      traced_scan->pass_cells.push_back(cell);
     }
 
-    error += deltaY;
-
-    if (2 * error >= deltaX) {
+    error -= deltaY;
+    if (error < 0) {
       y += ystep;
-      error -= deltaX;
-    }
-
-    if (x == x1 && isEndPointValid) {
-      traced_scan->hit_cells[this->GridToWorld({pointX, pointY})]++;
-    } else {
-      traced_scan->pass_cells[this->GridToWorld({pointX, pointY})]++;
+      error += deltaX;
     }
   }
 }
 
-void OccupancyGrid::clearCache() { traced_scans_.clear(); }
+void OccupancyGrid::finalizeVector(std::vector<GridCell>& vec)
+{
+  if (vec.empty())
+  {
+    return;
+  }
+
+  std::sort(vec.begin(), vec.end());
+
+  auto it = vec.begin();
+  auto write_it = vec.begin();
+
+  while (++it != vec.end())
+  {
+    if (*it == *write_it)
+    {
+      write_it->count += it->count;
+    } else
+    {
+      *(++write_it) = *it;
+    }
+  }
+
+  vec.erase(++write_it, vec.end());
+}
 
 bool OccupancyGrid::isSamePose(karto::Pose2 p1, karto::Pose2 p2) {
   return p1.GetX() == p2.GetX() && p1.GetY() == p2.GetY() &&
@@ -244,9 +299,14 @@ void OccupancyGrid::realloc(const karto::LocalizedRangeScanVector& rScans,
   karto::Vector2<kt_double> offset;
   ComputeDimensions(rScans, resolution, width, height, offset);
 
-  GetCoordinateConverter()->SetScale(1.0 / resolution);
-  GetCoordinateConverter()->SetOffset(offset);
-  Resize(width, height);
+  this->Resize(width, height);
+
+  this->GetCoordinateConverter()->SetScale(1.0 / resolution);
+  this->GetCoordinateConverter()->SetOffset(offset);
+
+  m_pCellHitsCnt->GetCoordinateConverter()->SetOffset(offset);
+  m_pCellPassCnt->GetCoordinateConverter()->SetOffset(offset);
+
 }
 
 }  // namespace mapper_utils
